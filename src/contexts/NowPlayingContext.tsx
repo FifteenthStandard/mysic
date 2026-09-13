@@ -201,6 +201,30 @@ export function NowPlayingProvider({ children }: { children: React.ReactNode}): 
     }
   }, [ audioElement, dispatch, state.status, state.progress ]);
 
+  useEffect(() => {
+    if (state.song) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: state.song.songName,
+        album: state.song.album.albumName,
+        artist: state.song.album.artistName,
+        artwork: [
+          { src: state.song.album.cover.highdef, sizes: '800x800', type: 'image/jpeg' },
+          { src: state.song.album.cover.thumbnail, sizes: '200x200', type: 'image/jpeg' },
+        ],
+      });
+      navigator.mediaSession.setPositionState(state.progress);
+    }
+  }, [ state.song, state.progress ]);
+
+  useEffect(() => {
+    navigator.mediaSession.playbackState = {
+      'playing': 'playing',
+      'paused': 'paused',
+      'stopped': 'none',
+      'seeking': 'paused',
+    }[state.status] as MediaSessionPlaybackState;
+  }, [ state.status ]);
+
   return (
     <NowPlayingContext.Provider value={state}>
       <NowPlayingDispatchContext.Provider value={dispatcher}>

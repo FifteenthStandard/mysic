@@ -119,6 +119,7 @@ export default function NowPlaying(): React.ReactElement {
             <tbody>
               {albums.map((album, albumPos) => (
                 <AlbumEntry
+                  key={album.albumId}
                   album={album}
                   albumPos={albumPos}
                 />
