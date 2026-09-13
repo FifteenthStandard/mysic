@@ -92,18 +92,24 @@ export interface LibraryClient {
 }
 
 export interface NowPlayingDispatch {
-  play(songId: string): void;
+  play(albums: Album[], position?: [ number, number ]): void;
+  add(album: Album): void;
+  jumpTo(position: [ number, number ]): void;
   pause(): void;
   resume(): void;
   restart(): void;
+  next(): void;
+  previous(): void;
   stop(): void;
   seek(position: number): void;
 }
 
 export type NowPlayingState = {
   status: PlayStatus;
-  song: Song | undefined;
-  progress: Progress | undefined;
+  albums: Album[];
+  position?: [ number, number ];
+  song?: Song;
+  progress?: Progress;
 }
 
 export type PlayStatus =

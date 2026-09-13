@@ -9,3 +9,14 @@ export function sortArtists<T extends { artistName: string }>(artists: T[]): T[]
 export function sortSongs<T extends { position: number }>(songs: T[]): T[] {
   return songs.toSorted((a, b) => a.position - b.position);
 };
+
+export function formatTime(timeMs: number): string {
+  const timeS = Math.floor(timeMs / 1000);
+  const seconds = (timeS % 60).toString().padStart(2, '0');
+  const timeM = Math.floor(timeS / 60);
+  const minutes = (timeM % 60).toString().padStart(2, '0');
+  const timeH = Math.floor(timeM / 60);
+  return timeH > 0
+    ? `${timeH}:${minutes}:${seconds}`
+    : `${minutes}:${seconds}`;
+};

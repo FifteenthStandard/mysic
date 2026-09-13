@@ -1,8 +1,12 @@
 import {
+  IconButton,
   Stack,
 } from '../components';
+import {
+  PlayArrow,
+  PlaylistAdd,
+} from '../icons';
 import { useNowPlayingDispatch, useViewedAlbum } from '../contexts';
-import type { SongSummary } from '../types';
 
 export default function AlbumPage(): React.ReactElement {
   const album = useViewedAlbum();
@@ -10,10 +14,12 @@ export default function AlbumPage(): React.ReactElement {
 
   if (!album) return <></>;
 
-  function createClickSongHandler(song: SongSummary): (() => void) {
-    return function handleClickSong(): void {
-      dispatch.play(song.songId);
-    };
+  function handleClickPlay(): void {
+    dispatch.play([ album! ]);
+  };
+
+  function handleClickAdd(): void {
+    dispatch.add(album!);
   };
 
   return (
@@ -29,13 +35,17 @@ export default function AlbumPage(): React.ReactElement {
       />
       <h1>{album.albumName}</h1>
       <p>{album.artistName}</p>
+      <Stack orientation="row" style={{ width: 'fit-content' }}>
+        <IconButton onClick={handleClickPlay}>
+          <PlayArrow />
+        </IconButton>
+        <IconButton onClick={handleClickAdd}>
+          <PlaylistAdd />
+        </IconButton>
+      </Stack>
       <ol>
         {album.songs.map(song => (
-          <li
-            key={song.songId}
-            onClick={createClickSongHandler(song)}
-            style={{ cursor: 'pointer' }}
-          >
+          <li key={song.songId}>
             {song.songName}
           </li>
         ))}

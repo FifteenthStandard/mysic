@@ -4,5 +4,8 @@ export { default as Filter } from './Filter';
 export { default as FilterOff } from './FilterOff';
 export { default as Pause } from './Pause';
 export { default as PlayArrow } from './PlayArrow';
+export { default as PlaylistAdd } from './PlaylistAdd';
 export { default as Replay } from './Replay';
+export { default as SkipNext } from './SkipNext';
+export { default as SkipPrevious } from './SkipPrevious';
 export { default as Stop } from './Stop';

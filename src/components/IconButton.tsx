@@ -46,6 +46,7 @@ export default function IconButton({
         backgroundColor: active ? styles.color.grey[2] : (hover || focus) ? styles.color.grey[1] : 'inherit',
         border: 'none',
         borderRadius: '50%',
+        cursor: 'pointer',
         fontSize: styles.fontsize.md,
         height: `calc(${styles.fontsize.md} * 2)`,
         padding: '0px',

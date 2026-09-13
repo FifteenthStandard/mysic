@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useLibrary } from '.';
 import type {
+  Album,
   NowPlayingDispatch,
   NowPlayingState,
   Song,
@@ -23,12 +24,28 @@ type NowPlayingStateInternal = NowPlayingState & {
 
 const initialState: NowPlayingStateInternal = {
   status: 'stopped',
+  albums: [],
+  position: undefined,
   song: undefined,
   progress: undefined,
 };
 
 type PlayAction = {
   type: 'PLAY';
+  albums: Album[];
+  position: [ number, number ];
+  song: Song;
+  objectUrl: string;
+}
+
+type AddAction = {
+  type: 'ADD';
+  album: Album;
+}
+
+type JumpToAction = {
+  type: 'JUMP_TO';
+  position: [ number, number ];
   song: Song;
   objectUrl: string;
 }
@@ -53,6 +70,8 @@ type SeekAction = {
 
 type NowPlayingAction =
   | PlayAction
+  | AddAction
+  | JumpToAction
   | PauseAction
   | ResumeAction
   | StopAction
@@ -61,10 +80,32 @@ type NowPlayingAction =
 function reduce(state: NowPlayingStateInternal, action: NowPlayingAction): NowPlayingStateInternal {
   switch (action.type) {
     case 'PLAY': {
-      const { song, objectUrl } = action;
+      const { albums, position, song, objectUrl } = action;
       return {
         ...state,
         status: 'playing',
+        albums,
+        position,
+        song,
+        objectUrl,
+        progress: { position: 0, duration: song.durationMs / 1000 },
+      };
+    }
+
+    case 'ADD': {
+      const { album } = action;
+      return {
+        ...state,
+        albums: [ ...state.albums, album ],
+      };
+    }
+
+    case 'JUMP_TO': {
+      const { position, song, objectUrl } = action;
+      return {
+        ...state,
+        status: 'playing',
+        position,
         song,
         objectUrl,
         progress: { position: 0, duration: song.durationMs / 1000 },
@@ -94,19 +135,34 @@ export function NowPlayingProvider({ children }: { children: React.ReactNode}): 
   const [ state, dispatch ] = useReducer(reduce, initialState);
   const audioElement = useRef<HTMLAudioElement | null>(null);
 
-  const dispatcher = createNowPlayingDispatch(dispatch);
+  const dispatcher = createNowPlayingDispatch(state, dispatch);
+
+  const library = useLibrary();
 
   useEffect(() => {
     if (!audioElement.current) return;
 
-    function handleTimeUpdate(event: Event): void {
-      const position = (event.target as HTMLAudioElement).currentTime;
+    function handleTimeUpdate(): void {
+      const position = audioElement.current!.currentTime;
       dispatch({ type: 'SEEK', position, userRequested: false });
     };
 
+    async function handleEnded(): Promise<void> {
+      if (!state.position) return;
+      const position = getNext(state.albums, state.position!);
+      const [ albumPos, songPos ] = position;
+      const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+      const objectUrl = await getObjectUrl(song.handle);
+      dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+    };
+
     audioElement.current.addEventListener('timeupdate', handleTimeUpdate);
-    return () => audioElement.current?.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [ audioElement, dispatch ]);
+    audioElement.current.addEventListener('ended', handleEnded);
+    return () => {
+      audioElement.current?.removeEventListener('timeupdate', handleTimeUpdate);
+      audioElement.current?.removeEventListener('ended', handleEnded);
+    };
+  }, [ audioElement, library,state.albums, state.position, dispatch ]);
 
   useEffect(() => {
     if (!audioElement.current) return;
@@ -171,14 +227,26 @@ export function useNowPlayingDispatch(): NowPlayingDispatch {
   return context;
 };
 
-function createNowPlayingDispatch(dispatch: React.ActionDispatch<[action: NowPlayingAction]>): NowPlayingDispatch {
+function createNowPlayingDispatch(state: NowPlayingStateInternal, dispatch: React.ActionDispatch<[action: NowPlayingAction]>): NowPlayingDispatch {
   const library = useLibrary();
 
-  const play = useCallback(async function (songId: string): Promise<void> {
-    const song = library.getSong(songId);
+  const play = useCallback(async function (albums: Album[], position: [ number, number ] = [ 0, 0 ]): Promise<void> {
+    const [ albumPos, songPos ] = position;
+    const song = library.getSong(albums[albumPos].songs[songPos].songId);
     const objectUrl = await getObjectUrl(song.handle);
-    dispatch({ type: 'PLAY', song, objectUrl });
+    dispatch({ type: 'PLAY', albums, position, song, objectUrl });
   }, [ library, dispatch ]);
+
+  const add = useCallback(function (album: Album): void {
+    dispatch({ type: 'ADD', album });
+  }, [ dispatch ]);
+
+  const jumpTo = useCallback(async function (position: [ number, number ]): Promise<void> {
+    const [ albumPos, songPos ] = position;
+    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+    const objectUrl = await getObjectUrl(song.handle);
+    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+  }, [ library, state.albums, dispatch ]);
 
   const pause = useCallback(function (): void {
     dispatch({ type: 'PAUSE' });
@@ -192,6 +260,26 @@ function createNowPlayingDispatch(dispatch: React.ActionDispatch<[action: NowPla
     dispatch({ type: 'SEEK', position: 0, userRequested: true });
   }, [ dispatch ]);
 
+  const next = useCallback(async function (): Promise<void> {
+    const position: [ number, number ] = state.position === undefined
+      ? [ 0, 0 ]
+      : getNext(state.albums, state.position);
+    const [ albumPos, songPos ] = position;
+    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+    const objectUrl = await getObjectUrl(song.handle);
+    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+  }, [ state.albums, state.position, dispatch ]);
+
+  const previous = useCallback(async function (): Promise<void> {
+    const position: [ number, number ] = state.position === undefined
+      ? [ 0, 0 ]
+      : getPrevious(state.albums, state.position);
+    const [ albumPos, songPos ] = position;
+    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+    const objectUrl = await getObjectUrl(song.handle);
+    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+  }, [ state.albums, state.position, dispatch ]);
+
   const stop = useCallback(function (): void {
     dispatch({ type: 'STOP' });
   }, [ dispatch ]);
@@ -202,12 +290,31 @@ function createNowPlayingDispatch(dispatch: React.ActionDispatch<[action: NowPla
 
   return useMemo(() => ({
     play,
+    add,
+    jumpTo,
     pause,
     resume,
     restart,
+    next,
+    previous,
     stop,
     seek,
-  }), [ play, pause, resume, restart, stop ])
+  }), [ play, add, jumpTo, pause, resume, restart, next, previous, stop ])
+};
+
+function getNext(albums: Album[], position: [ number, number ]): [ number, number ] {
+  const [ albumPos, songPos ] = position;
+  return songPos+1 < albums[albumPos].songs.length
+    ? [ albumPos, songPos+1]
+    : [ (albumPos+1) % albums.length, 0 ];
+};
+
+function getPrevious(albums: Album[], position: [ number, number ]): [ number, number ] {
+  const [ albumPos, songPos ] = position;
+  const prevAlbumPos = (albumPos-1+albums.length) % albums.length;
+  return songPos-1 >= 0
+    ? [ albumPos, songPos-1]
+    : [ prevAlbumPos, albums[prevAlbumPos].songs.length - 1 ];
 };
 
 async function getObjectUrl(songHandle: FileSystemFileHandle): Promise<string> {

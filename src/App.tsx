@@ -1,5 +1,5 @@
 import {
-  createBrowserRouter,
+  createHashRouter,
   Outlet,
   ScrollRestoration,
   RouterProvider,
@@ -12,7 +12,7 @@ import {
 } from './pages';
 import { NowPlaying } from './views';
 
-const router = createBrowserRouter([
+const router = createHashRouter([
   {
     element: <Layout />,
     children: [
@@ -21,18 +21,16 @@ const router = createBrowserRouter([
         element: <HomePage />,
       },
       {
-        path: 'album',
+        path: '/album/:albumId',
         element: <AlbumPage />,
       },
       {
-        path: 'artist',
+        path: '/artist/:artistId',
         element: <HomePage />,
       },
     ],
   },
-], {
-  basename: '/mysic/',
-});
+]);
 
 export default function App(): React.ReactElement {
   return (

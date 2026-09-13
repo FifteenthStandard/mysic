@@ -28,6 +28,12 @@ export default function CssBaseline(): React.ReactElement {
       svg {
         color: inherit;
       }
+
+      table {
+        td, th {
+          padding: ${styles.gap.sm};
+        }
+      }
     }
   `;
   return (
