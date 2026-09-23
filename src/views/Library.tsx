@@ -21,11 +21,16 @@ export default function Library(): React.ReactElement {
     initializer.initialize(true);
   };
 
+  function handleClear(): void {
+    initializer.reset();
+  };
+
   return (
     <>
       <FilterBar filter={filter} setFilter={setFilter} />
       {!initialized && <button onClick={handleClickInitialize}>Initialize</button>}
       <AlbumGrid albums={albums} />
+      <button onClick={handleClear}>Reset</button>
     </>
   )
 };

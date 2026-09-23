@@ -40,6 +40,9 @@ function reduce(state: LibraryStateInternal, action: LibraryAction): LibraryStat
     case 'INITIALIZE':
       return { ...action.state, initialized: true };
 
+    case 'RESET':
+      return { ...initialState };
+
     case 'SET_ALBUM':
       const { album } = action;
       return {
@@ -116,15 +119,24 @@ function createLibraryInitializer(dispatch: React.ActionDispatch<[action: Librar
   const initialize = useCallback(function (userRequested: boolean): void {
     (async function () {
       if (!await FileSystemClient.initialize(userRequested)) return;
-      const state = await FileSystemClient.state();
+      let state;
+      state = await FileSystemClient.state();
       dispatch({
         type: 'INITIALIZE',
         state,
       });
     }());
-  }, []);
+  }, [ dispatch ]);
+
+  const reset = useCallback(function (): void {
+    (async function () {
+      await FileSystemClient.reset();
+      dispatch({ type: 'RESET' });
+    }());
+  }, [ dispatch ]);
   return {
     initialize,
+    reset,
   };
 };
 

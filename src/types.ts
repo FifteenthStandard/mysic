@@ -57,11 +57,16 @@ export interface LibraryDispatch {
 
 export interface LibraryInitializer {
   initialize(userRequested: boolean): void;
+  reset(): void;
 }
 
 type InitializeAction = {
   type: 'INITIALIZE';
   state: LibraryState;
+}
+
+type ResetAction = {
+  type: 'RESET';
 }
 
 type SetAlbumAction = {
@@ -76,6 +81,7 @@ type SetArtistAction = {
 
 export type LibraryAction =
   | InitializeAction
+  | ResetAction
   | SetAlbumAction
   | SetArtistAction;
 
@@ -89,6 +95,7 @@ export interface LibraryClient {
   initialize(userRequested: boolean): Promise<boolean>;
   state(): Promise<LibraryState>;
   dispatch(action: LibraryAction): Promise<void>;
+  reset(): Promise<void>;
 }
 
 export interface NowPlayingDispatch {

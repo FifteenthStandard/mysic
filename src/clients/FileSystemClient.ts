@@ -1,6 +1,7 @@
 import {
   getDbState,
   saveDbState,
+  deleteDb,
   getAlbum,
   listAlbums,
   searchArtists,
@@ -21,7 +22,7 @@ async function initialize(userRequested: boolean): Promise<boolean> {
   rootHandle = await getDbState<FileSystemDirectoryHandle>('FileSystemClient');
   if (rootHandle !== undefined) return true;
   if (!userRequested) return false;
-  rootHandle = await window.showDirectoryPicker();
+  rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
   await saveDbState('FileSystemClient', rootHandle);
   return true;
 };
@@ -88,10 +89,29 @@ async function dispatch(action: LibraryAction): Promise<void> {
   }
 };
 
+async function reset(): Promise<void> {
+  if (!rootHandle) return;
+
+  for await (const [ _, artistHandle ] of rootHandle.entries()) {
+    if (artistHandle.kind !== 'directory') continue;
+    try { artistHandle.removeEntry('.metadata'); }
+    catch (error) { }
+
+    for await (const [ _, albumHandle ] of artistHandle.entries()) {
+      if (albumHandle.kind !== 'directory') continue;
+      try { albumHandle.removeEntry('.metadata'); }
+      catch (error) { }
+    }
+  }
+
+  await deleteDb();
+};
+
 export const FileSystemClient: LibraryClient = {
   initialize,
   state,
   dispatch,
+  reset,
 };
 
 async function getMetadata<T>(directory: FileSystemDirectoryHandle): Promise<T | null> {

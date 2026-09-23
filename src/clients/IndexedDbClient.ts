@@ -45,12 +45,18 @@ export async function getDbState<T>(id: string): Promise<T | undefined> {
     const store = transaction.objectStore(stateStoreName);
     const request = store.get(id);
 
-    request.onsuccess = () => {
-      resolve(request.result);
-    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
 
-    request.onerror = () => {
-      reject(request.error);
-    };
+export async function deleteDb(): Promise<void> {
+  const db = await dbPromise;
+  db.close();
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(dbName);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 };
