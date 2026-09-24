@@ -22,7 +22,11 @@ async function initialize(userRequested: boolean): Promise<boolean> {
   rootHandle = await getDbState<FileSystemDirectoryHandle>('FileSystemClient');
   if (rootHandle !== undefined) return true;
   if (!userRequested) return false;
-  rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  try {
+    rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  } catch (error) {
+    return false;
+  }
   await saveDbState('FileSystemClient', rootHandle);
   return true;
 };
