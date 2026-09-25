@@ -20,7 +20,10 @@ let rootHandle: FileSystemDirectoryHandle | undefined = undefined;
 
 async function initialize(userRequested: boolean): Promise<boolean> {
   rootHandle = await getDbState<FileSystemDirectoryHandle>('FileSystemClient');
-  if (rootHandle !== undefined) return true;
+  if (rootHandle !== undefined) {
+    if (userRequested) await rootHandle.requestPermission({ mode: 'readwrite' });
+    return (await rootHandle.queryPermission({ mode: 'readwrite' })) === 'granted';
+  }
   if (!userRequested) return false;
   try {
     rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
