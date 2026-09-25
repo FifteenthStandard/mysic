@@ -21,8 +21,8 @@ let rootHandle: FileSystemDirectoryHandle | undefined = undefined;
 async function initialize(userRequested: boolean): Promise<boolean> {
   rootHandle = await getDbState<FileSystemDirectoryHandle>('FileSystemClient');
   if (rootHandle !== undefined) {
-    if (userRequested) await rootHandle.requestPermission({ mode: 'readwrite' });
-    return (await rootHandle.queryPermission({ mode: 'readwrite' })) === 'granted';
+    if (userRequested) await rootHandle.requestPermission({ mode: 'read' });
+    return (await rootHandle.queryPermission({ mode: 'read' })) === 'granted';
   }
   if (!userRequested) return false;
   try {
@@ -134,6 +134,8 @@ async function getMetadata<T>(directory: FileSystemDirectoryHandle): Promise<T |
 };
 
 async function saveMetadata(directory: FileSystemDirectoryHandle, metadata: Album | ArtistSummary): Promise<void> {
+  if (await rootHandle?.queryPermission({ mode: 'readwrite' }) !== 'granted')
+    await rootHandle?.requestPermission({ mode: 'readwrite' });
   const fileHandle = await directory.getFileHandle('.metadata', { create: true });
   const stream = await fileHandle.createWritable({ keepExistingData: false });
   await stream.write(JSON.stringify(metadata));
