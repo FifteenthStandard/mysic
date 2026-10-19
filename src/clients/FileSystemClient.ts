@@ -1,19 +1,14 @@
 import {
+  deleteDb,
   getDbState,
   saveDbState,
-  deleteDb,
-  getAlbum,
-  listAlbums,
-  searchArtists,
 } from '.';
+import { getObjectUrl, sortSongs } from '../helpers';
 import type {
   Album,
-  AlbumSummary,
-  ArtistSummary,
-  LibraryAction,
+  Artist,
   LibraryClient,
-  LibraryState,
-  SongFile,
+  Song,
 } from '../types';
 
 let rootHandle: FileSystemDirectoryHandle | undefined = undefined;
@@ -34,65 +29,66 @@ async function initialize(userRequested: boolean): Promise<boolean> {
   return true;
 };
 
-async function state(): Promise<LibraryState> {
-  if (!rootHandle) return { albums: {}, artists: {}, songs: {} };
-
-  const albums: Record<string, Album> = {};
-  const artists: Record<string, ArtistSummary> = {};
-  const songs: Record<string, SongFile> = {};
+async function *load(): AsyncGenerator<Artist | Album, void, unknown> {
+  if (!rootHandle) return;
 
   for await (const [ artistName, artistHandle ] of rootHandle.entries()) {
     if (artistHandle.kind !== 'directory') continue;
 
-    let artist: ArtistSummary | null = await getMetadata(artistHandle);
-    if (artist === null) {
-      const results = await searchArtists(artistName);
-      [ artist ] = results;
-      await saveMetadata(artistHandle, artist);
-    }
+    const artist = {
+      artistId: artistName,
+      artistName,
+    };
+    yield artist;
 
-    artists[artist.artistId] = artist;
-
-    let artistAlbums: AlbumSummary[] | null;
-    for await (const [ albumName, albumHandle ] of artistHandle.entries()) {
+    for await (const [ albumDirectoryName, albumHandle ] of artistHandle.entries()) {
       if (albumHandle.kind !== 'directory') continue;
 
-      let album: Album | null = await getMetadata<Album>(albumHandle);
-      if (album === null) {
-        artistAlbums ||= await listAlbums(artist.artistId);
-        const albumSummary = artistAlbums.find(a => `(${a.releaseDate.substring(0, 4)}) ${a.albumName}` === albumName);
-        if (!albumSummary) continue;
-        album = await getAlbum(albumSummary.albumId);
-        await saveMetadata(albumHandle, album);
+      const match = albumDirectoryName.match(/^\((\d+)\) (.+)/);
+      if (!match || match.length !== 3) continue;
+
+      const releaseYear = parseInt(match[1]);
+      const albumName = match[2];
+
+      let cover: string | undefined = undefined;
+      try {
+        const coverHandle = await albumHandle.getFileHandle('cover.png');
+        cover = await getObjectUrl(coverHandle);
+      } catch {
+        // ignore
       }
 
-      albums[album.albumId] = album;
+      const songs: Song[] = [];
 
-      for await (const [ songName, songHandle ] of albumHandle.entries()) {
+      for await (const [ songFileName, songHandle ] of albumHandle.entries()) {
         if (songHandle.kind !== 'file') continue;
 
-        const match = songName.match(/^\d+/);
-        if (!match || match.length !== 1) continue;
+        const match = songFileName.match(/^(\d+)(?: -)? (.+)\.([^ ]+)/);
+        if (!match || match.length !== 4) continue;
 
-        const position = parseInt(match[0]);
-        const song = album.songs[position - 1];
-        songs[song.songId] = { ...song, handle: songHandle };
+        const position = parseInt(match[1]);
+        const songName = match[2];
+
+        const song: Song = {
+          songId: `${artistName}/${albumName}/${songFileName}`,
+          position,
+          songName,
+          durationMs: 0, // TODO
+          handle: songHandle,
+        };
+        songs.push(song);
       }
+      const album: Album = {
+        ...artist,
+        albumId: `${artistName}/${albumName}`,
+        albumName,
+        releaseYear,
+        cover,
+        songs: sortSongs(songs),
+      };
+
+      yield album;
     }
-  }
-
-  return {
-    albums,
-    artists,
-    songs,
-  };
-};
-
-async function dispatch(action: LibraryAction): Promise<void> {
-  if (!rootHandle) return;
-
-  switch (action.type) {
-    default: return Promise.resolve();
   }
 };
 
@@ -116,28 +112,6 @@ async function reset(): Promise<void> {
 
 export const FileSystemClient: LibraryClient = {
   initialize,
-  state,
-  dispatch,
   reset,
-};
-
-async function getMetadata<T>(directory: FileSystemDirectoryHandle): Promise<T | null> {
-  try {
-    const fileHandle = await directory.getFileHandle('.metadata', { create: false });
-    const file = await fileHandle.getFile();
-    const text = await file.text();
-    const json = await JSON.parse(text);
-    return json as T;
-  } catch (error) {
-    return null;
-  }
-};
-
-async function saveMetadata(directory: FileSystemDirectoryHandle, metadata: Album | ArtistSummary): Promise<void> {
-  if (await rootHandle?.queryPermission({ mode: 'readwrite' }) !== 'granted')
-    await rootHandle?.requestPermission({ mode: 'readwrite' });
-  const fileHandle = await directory.getFileHandle('.metadata', { create: true });
-  const stream = await fileHandle.createWritable({ keepExistingData: false });
-  await stream.write(JSON.stringify(metadata));
-  await stream.close();
+  load,
 };

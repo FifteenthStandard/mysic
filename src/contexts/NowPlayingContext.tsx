@@ -8,10 +8,13 @@ import {
   useRef,
 } from 'react';
 import { useLibrary } from '.';
+import { defaultCover } from '../assets';
+import { getObjectUrl } from '../helpers';
 import type {
   Album,
   NowPlayingDispatch,
   NowPlayingState,
+  Progress,
   Song,
 } from '../types';
 
@@ -26,6 +29,7 @@ const initialState: NowPlayingStateInternal = {
   status: 'stopped',
   albums: [],
   position: undefined,
+  album: undefined,
   song: undefined,
   progress: undefined,
 };
@@ -34,6 +38,7 @@ type PlayAction = {
   type: 'PLAY';
   albums: Album[];
   position: [ number, number ];
+  album: Album;
   song: Song;
   objectUrl: string;
 }
@@ -46,6 +51,7 @@ type AddAction = {
 type JumpToAction = {
   type: 'JUMP_TO';
   position: [ number, number ];
+  album: Album;
   song: Song;
   objectUrl: string;
 }
@@ -64,7 +70,7 @@ type StopAction = {
 
 type SeekAction = {
   type: 'SEEK';
-  position: number;
+  progress: number | Progress;
   userRequested: boolean;
 }
 
@@ -80,12 +86,13 @@ type NowPlayingAction =
 function reduce(state: NowPlayingStateInternal, action: NowPlayingAction): NowPlayingStateInternal {
   switch (action.type) {
     case 'PLAY': {
-      const { albums, position, song, objectUrl } = action;
+      const { albums, position, album, song, objectUrl } = action;
       return {
         ...state,
         status: 'playing',
         albums,
         position,
+        album,
         song,
         objectUrl,
         progress: { position: 0, duration: song.durationMs / 1000 },
@@ -101,14 +108,15 @@ function reduce(state: NowPlayingStateInternal, action: NowPlayingAction): NowPl
     }
 
     case 'JUMP_TO': {
-      const { position, song, objectUrl } = action;
+      const { position, album, song, objectUrl } = action;
       return {
         ...state,
         status: 'playing',
         position,
+        album,
         song,
         objectUrl,
-        progress: { position: 0, duration: song.durationMs / 1000 },
+        progress: undefined,
       };
     }
 
@@ -122,8 +130,14 @@ function reduce(state: NowPlayingStateInternal, action: NowPlayingAction): NowPl
       return { ...state, status: 'stopped' };
 
     case 'SEEK': {
-      const { position, userRequested } = action;
-      return { ...state, status: userRequested ? 'seeking' : state.status, progress: { ...state.progress!, position } };
+      const { progress, userRequested } = action;
+      return {
+        ...state,
+        status: userRequested ? 'seeking' : state.status,
+        progress: typeof progress === 'number'
+          ? { ...state.progress, position: progress } as Progress
+          : progress,
+      };
     }
 
     default:
@@ -143,17 +157,22 @@ export function NowPlayingProvider({ children }: { children: React.ReactNode}): 
     if (!audioElement.current) return;
 
     function handleTimeUpdate(): void {
-      const position = audioElement.current!.currentTime;
-      dispatch({ type: 'SEEK', position, userRequested: false });
+      if (!audioElement.current) return;
+      const progress: Progress = {
+        position: audioElement.current.currentTime,
+        duration: audioElement.current.duration,
+      };
+      dispatch({ type: 'SEEK', progress, userRequested: false });
     };
 
     async function handleEnded(): Promise<void> {
       if (!state.position) return;
       const position = getNext(state.albums, state.position!);
       const [ albumPos, songPos ] = position;
-      const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+      const album = state.albums[albumPos];
+      const song = album.songs[songPos];
       const objectUrl = await getObjectUrl(song.handle);
-      dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+      dispatch({ type: 'JUMP_TO', position, album, song, objectUrl });
     };
 
     audioElement.current.addEventListener('timeupdate', handleTimeUpdate);
@@ -202,17 +221,18 @@ export function NowPlayingProvider({ children }: { children: React.ReactNode}): 
   }, [ audioElement, dispatch, state.status, state.progress ]);
 
   useEffect(() => {
-    if (state.song) {
+    if (state.album && state.song) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: state.song.songName,
-        album: state.song.album.albumName,
-        artist: state.song.album.artistName,
+        album: state.album.albumName,
+        artist: state.album.artistName,
         artwork: [
-          { src: state.song.album.cover.highdef, sizes: '800x800', type: 'image/jpeg' },
-          { src: state.song.album.cover.thumbnail, sizes: '200x200', type: 'image/jpeg' },
+          { src: state.album.cover ?? defaultCover, sizes: '800x800', type: 'image/jpeg' },
         ],
       });
-      navigator.mediaSession.setPositionState(state.progress);
+      if (state.progress && state.progress.duration) {
+        navigator.mediaSession.setPositionState(state.progress);
+      }
     }
   }, [ state.song, state.progress ]);
 
@@ -224,6 +244,32 @@ export function NowPlayingProvider({ children }: { children: React.ReactNode}): 
       'seeking': 'paused',
     }[state.status] as MediaSessionPlaybackState;
   }, [ state.status ]);
+
+  useEffect(() => {
+    navigator.mediaSession.setActionHandler('pause', function () {
+      dispatcher.pause();
+    });
+    navigator.mediaSession.setActionHandler('play', function () {
+      dispatcher.resume();
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', function () {
+      dispatcher.next();
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', function () {
+      dispatcher.previous();
+    });
+    navigator.mediaSession.setActionHandler('seekto', function (details) {
+      if (details.seekTime) dispatcher.seek(details.seekTime);
+    });
+
+    return function () {
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('seekto', null);
+    };
+  }, [ dispatcher ]);
 
   return (
     <NowPlayingContext.Provider value={state}>
@@ -256,20 +302,40 @@ function createNowPlayingDispatch(state: NowPlayingStateInternal, dispatch: Reac
 
   const play = useCallback(async function (albums: Album[], position: [ number, number ] = [ 0, 0 ]): Promise<void> {
     const [ albumPos, songPos ] = position;
-    const song = library.getSong(albums[albumPos].songs[songPos].songId);
+    const album = albums[albumPos];
+    const song = album.songs[songPos];
     const objectUrl = await getObjectUrl(song.handle);
-    dispatch({ type: 'PLAY', albums, position, song, objectUrl });
+    dispatch({ type: 'PLAY', albums, position, album, song, objectUrl });
   }, [ library, dispatch ]);
 
   const add = useCallback(function (album: Album): void {
     dispatch({ type: 'ADD', album });
   }, [ dispatch ]);
 
-  const jumpTo = useCallback(async function (position: [ number, number ]): Promise<void> {
-    const [ albumPos, songPos ] = position;
-    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+  const jumpTo = useCallback(async function (position: [ number, number ] | string): Promise<void> {
+    let albumPos: number
+    let songPos: number;
+    if (typeof position === 'string') {
+      const pos = findSong(position);
+      if (!pos) return;
+      position = [ albumPos, songPos ] = pos;
+    } else {
+      [ albumPos, songPos ] = position;
+    }
+    const album = state.albums[albumPos];
+    const song = album.songs[songPos];
     const objectUrl = await getObjectUrl(song.handle);
-    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+    dispatch({ type: 'JUMP_TO', position, album, song, objectUrl });
+
+    function findSong(songId: string): [ number, number ] | undefined {
+      for (albumPos = 0; albumPos < state.albums.length; albumPos++) {
+        const songs = state.albums[albumPos].songs;
+        for (songPos = 0; songPos < songs.length; songPos++) {
+          if (songs[songPos].songId === songId) return [ albumPos, songPos ];
+        }
+      }
+      return undefined;
+    };
   }, [ library, state.albums, dispatch ]);
 
   const pause = useCallback(function (): void {
@@ -281,7 +347,7 @@ function createNowPlayingDispatch(state: NowPlayingStateInternal, dispatch: Reac
   }, [ dispatch ]);
 
   const restart = useCallback(function (): void {
-    dispatch({ type: 'SEEK', position: 0, userRequested: true });
+    dispatch({ type: 'SEEK', progress: 0, userRequested: true });
   }, [ dispatch ]);
 
   const next = useCallback(async function (): Promise<void> {
@@ -289,9 +355,10 @@ function createNowPlayingDispatch(state: NowPlayingStateInternal, dispatch: Reac
       ? [ 0, 0 ]
       : getNext(state.albums, state.position);
     const [ albumPos, songPos ] = position;
-    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+    const album = state.albums[albumPos];
+    const song = album.songs[songPos];
     const objectUrl = await getObjectUrl(song.handle);
-    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+    dispatch({ type: 'JUMP_TO', position, album, song, objectUrl });
   }, [ state.albums, state.position, dispatch ]);
 
   const previous = useCallback(async function (): Promise<void> {
@@ -299,17 +366,18 @@ function createNowPlayingDispatch(state: NowPlayingStateInternal, dispatch: Reac
       ? [ 0, 0 ]
       : getPrevious(state.albums, state.position);
     const [ albumPos, songPos ] = position;
-    const song = library.getSong(state.albums[albumPos].songs[songPos].songId);
+    const album = state.albums[albumPos];
+    const song = album.songs[songPos];
     const objectUrl = await getObjectUrl(song.handle);
-    dispatch({ type: 'JUMP_TO', position, song, objectUrl });
+    dispatch({ type: 'JUMP_TO', position, album, song, objectUrl });
   }, [ state.albums, state.position, dispatch ]);
 
   const stop = useCallback(function (): void {
     dispatch({ type: 'STOP' });
   }, [ dispatch ]);
 
-  const seek = useCallback(function (position: number): void {
-    dispatch({ type: 'SEEK', position, userRequested: true });
+  const seek = useCallback(function (progress: number): void {
+    dispatch({ type: 'SEEK', progress, userRequested: true });
   }, [ dispatch ]);
 
   return useMemo(() => ({
@@ -339,9 +407,4 @@ function getPrevious(albums: Album[], position: [ number, number ]): [ number, n
   return songPos-1 >= 0
     ? [ albumPos, songPos-1]
     : [ prevAlbumPos, albums[prevAlbumPos].songs.length - 1 ];
-};
-
-async function getObjectUrl(songHandle: FileSystemFileHandle): Promise<string> {
-  const file = await songHandle.getFile();
-  return URL.createObjectURL(file);
 };

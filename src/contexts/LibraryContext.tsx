@@ -12,49 +12,98 @@ import type {
   Album,
   Artist,
   LibraryAccessor,
-  LibraryDispatch,
   LibraryInitializer,
-  LibraryState,
-  LibraryAction,
-  Song,
 } from '../types';
 
-type LibraryStateInternal = LibraryState & {
-  initialized: boolean;
+type LibraryState = {
+  status: 'uninitialized' | 'initializing' | 'initialized';
+  artists: Record<string, Artist>;
+  albumsByArtistId: Record<string, Album[]>;
+  albumsByAlbumId: Record<string, Album>;
 }
 
-const LibraryContext = createContext<LibraryStateInternal | undefined>(undefined);
+const LibraryContext = createContext<LibraryState | undefined>(undefined);
 const LibraryAccessorContext = createContext<LibraryAccessor | undefined>(undefined);
-const LibraryDispatchContext = createContext<LibraryDispatch | undefined>(undefined);
 const LibraryInitializerContext = createContext<LibraryInitializer | undefined>(undefined);
 
-const initialState: LibraryStateInternal = {
-  initialized: false,
-  albums: {},
+const initialState: LibraryState = {
+  status: 'uninitialized',
   artists: {},
-  songs: {},
+  albumsByArtistId: {},
+  albumsByAlbumId: {},
 };
 
-function reduce(state: LibraryStateInternal, action: LibraryAction): LibraryStateInternal {
+type InitializingAction = {
+  type: 'INITIALIZING';
+}
+
+type InitializedAction = {
+  type: 'INITIALIZED';
+}
+
+type ResetAction = {
+  type: 'RESET';
+}
+
+type ArtistAddedAction = {
+  type: 'ARTIST_ADDED';
+  artist: Artist;
+}
+
+type AlbumAddedAction = {
+  type: 'ALBUM_ADDED';
+  album: Album;
+}
+
+type LibraryAction =
+  | InitializingAction
+  | InitializedAction
+  | ResetAction
+  | ArtistAddedAction
+  | AlbumAddedAction;
+
+function reduce(state: LibraryState, action: LibraryAction): LibraryState {
   switch (action.type) {
-    case 'INITIALIZE':
-      return { ...action.state, initialized: true };
+    case 'INITIALIZING':
+      return {
+        ...state,
+        status: 'initializing',
+      };
+
+    case 'INITIALIZED':
+      return {
+        ...state,
+        status: 'initialized',
+      };
 
     case 'RESET':
       return { ...initialState };
 
-    case 'SET_ALBUM':
-      const { album } = action;
-      return {
-        ...state,
-        albums: { ...state.albums, [album.albumId]: album },
-      };
-
-    case 'SET_ARTIST':
+    case 'ARTIST_ADDED':
       const { artist } = action;
       return {
         ...state,
-        artists: { ...state.artists, [artist.artistId]: artist },
+        artists: {
+          ...state.artists,
+          [artist.artistId]: artist,
+        },
+      };
+
+    case 'ALBUM_ADDED':
+      const { album } = action;
+      return {
+        ...state,
+        albumsByArtistId: {
+          ...state.albumsByArtistId,
+          [album.artistId]: [
+            ...(state.albumsByArtistId[album.artistId] ?? []),
+            album,
+          ],
+        },
+        albumsByAlbumId: {
+          ...state.albumsByAlbumId,
+          [album.albumId]: album,
+        },
       };
 
     default:
@@ -65,14 +114,8 @@ function reduce(state: LibraryStateInternal, action: LibraryAction): LibraryStat
 export function LibraryProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const [ state, dispatch ] = useReducer(reduce, initialState);
 
-  const persistentDispatch = useCallback(function (action: LibraryAction): void {
-    FileSystemClient.dispatch(action);
-    dispatch(action);
-  }, [ dispatch ]);
-
   const initializer = createLibraryInitializer(dispatch);
   const accessor = createLibraryAccessor(state);
-  const dispatcher = createLibraryDispatch(state, persistentDispatch);
 
   useEffect(() => {
     initializer.initialize(false);
@@ -82,9 +125,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }): Re
     <LibraryContext.Provider value={state}>
       <LibraryInitializerContext.Provider value={initializer}>
         <LibraryAccessorContext.Provider value={accessor}>
-          <LibraryDispatchContext.Provider value={dispatcher}>
-            {children}
-          </LibraryDispatchContext.Provider>
+          {children}
         </LibraryAccessorContext.Provider>
       </LibraryInitializerContext.Provider>
     </LibraryContext.Provider>
@@ -95,14 +136,6 @@ export function useLibrary(): LibraryAccessor {
   const context = useContext(LibraryAccessorContext);
   if (context === undefined) {
     throw new Error('useLibrary must be used within a LibraryProvider');
-  }
-  return context;
-};
-
-export function useLibraryDispatch(): LibraryDispatch {
-  const context = useContext(LibraryDispatchContext);
-  if (context === undefined) {
-    throw new Error('useLibraryDispatch must be used within a LibraryProvider');
   }
   return context;
 };
@@ -119,12 +152,15 @@ function createLibraryInitializer(dispatch: React.ActionDispatch<[action: Librar
   const initialize = useCallback(function (userRequested: boolean): void {
     (async function () {
       if (!await FileSystemClient.initialize(userRequested)) return;
-      let state;
-      state = await FileSystemClient.state();
-      dispatch({
-        type: 'INITIALIZE',
-        state,
-      });
+      dispatch({ type: 'INITIALIZING' });
+      for await (const item of FileSystemClient.load()) {
+        if ('albumId' in item) {
+          dispatch({ type: 'ALBUM_ADDED', album: item });
+        } else {
+          dispatch({ type: 'ARTIST_ADDED', artist: item });
+        }
+      }
+      dispatch({ type: 'INITIALIZED' });
     }());
   }, [ dispatch ]);
 
@@ -140,57 +176,26 @@ function createLibraryInitializer(dispatch: React.ActionDispatch<[action: Librar
   };
 };
 
-function createLibraryAccessor(state: LibraryStateInternal): LibraryAccessor {
-  const initialized = state.initialized;
-
-  const albums = useMemo(() => sortAlbums(Object.values(state.albums)), [ state.albums ]);
-
+function createLibraryAccessor(state: LibraryState): LibraryAccessor {
+  const status = state.status;
   const artists = useMemo(() => sortArtists(Object.values(state.artists)), [ state.artists ]);
+  const albums = useMemo(() => sortAlbums(Object.values(state.albumsByAlbumId)), [ state.albumsByAlbumId ]);
+
+
+  const getAlbums = useCallback(function (artistId: string): Album[] {
+    return sortAlbums(state.albumsByArtistId[artistId]);
+  }, [ state.albumsByArtistId ]);
+
 
   const getAlbum = useCallback(function (albumId: string): Album {
-    return state.albums[albumId];
-  }, [ state.albums ]);
-
-  const getArtist = useCallback(function (artistId: string): Artist {
-    return {
-      ...state.artists[artistId],
-      albums: sortAlbums(Object.values(state.albums).filter(a => a.artistId === artistId)),
-    };
-  }, [ state.artists ]);
-
-  const getSong = useCallback(function (songId: string): Song {
-    const song = state.songs[songId];
-    return {
-      ...song,
-      album: state.albums[song.albumId],
-    };
-  }, [ state.albums, state.songs ]);
+    return state.albumsByAlbumId[albumId];
+  }, [ state.albumsByAlbumId ]);
 
   return useMemo(() => ({
-    initialized,
-    albums,
+    status,
     artists,
+    albums,
+    getAlbums,
     getAlbum,
-    getArtist,
-    getSong,
-  }), [ initialized, albums, artists, getAlbum, getArtist, getSong ]);
-};
-
-function createLibraryDispatch(state: LibraryState, dispatch: React.ActionDispatch<[action: LibraryAction]>): LibraryDispatch {
-  const addAlbum = useCallback(function (album: Album): void {
-    if (!(album.artistId in state.artists)) {
-      dispatch({
-        type: 'SET_ARTIST',
-        artist: { artistId: album.artistId, artistName: album.artistName },
-      });
-    }
-    dispatch({
-      type: 'SET_ALBUM',
-      album,
-    });
-  }, [ state, dispatch ]);
-
-  return useMemo(() => ({
-    addAlbum,
-  }), [ addAlbum ]);
+  }), [ status, artists, albums, getAlbums, getAlbum ]);
 };

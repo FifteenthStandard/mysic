@@ -1,12 +1,14 @@
-export function sortAlbums<T extends { artistName?: string, releaseDate: string }>(albums: T[]): T[] {
-  return albums.toSorted((a, b) => a.artistName && b.artistName && a.artistName.localeCompare(b.artistName) || a.releaseDate.localeCompare(b.releaseDate));
+import type { Album, Artist, Song } from './types';
+
+export function sortAlbums(albums: Album[]): Album[] {
+  return albums.toSorted((a, b) => a.artistName && b.artistName && a.artistName.localeCompare(b.artistName) || a.releaseYear - b.releaseYear);
 };
 
-export function sortArtists<T extends { artistName: string }>(artists: T[]): T[] {
+export function sortArtists(artists: Artist[]): Artist[] {
   return artists.toSorted((a, b) => a.artistName.localeCompare(b.artistName));
 };
 
-export function sortSongs<T extends { position: number }>(songs: T[]): T[] {
+export function sortSongs(songs: Song[]): Song[] {
   return songs.toSorted((a, b) => a.position - b.position);
 };
 
@@ -19,4 +21,10 @@ export function formatTime(timeMs: number): string {
   return timeH > 0
     ? `${timeH}:${minutes}:${seconds}`
     : `${minutes}:${seconds}`;
+};
+
+
+export async function getObjectUrl(fileHandle: FileSystemFileHandle): Promise<string> {
+  const file = await fileHandle.getFile();
+  return URL.createObjectURL(file);
 };

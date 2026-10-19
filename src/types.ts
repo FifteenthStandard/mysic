@@ -1,58 +1,28 @@
-export type Album = AlbumSummary & {
-  artistName: string;
-  songs: SongSummary[];
-}
-
-export type AlbumCover = {
-  thumbnail: string;
-  highdef: string;
-}
-
-export type AlbumSummary = {
+export type Artist = {
   artistId: string;
+  artistName: string;
+}
+
+export type Album = Artist & {
   albumId: string;
-  releaseDate: string;
   albumName: string;
-  cover: AlbumCover;
+  releaseYear: number;
+  cover?: string;
+  songs: Song[];
 }
 
-export type Artist = ArtistSummary & {
-  albums: Album[];
-}
-
-export type ArtistSummary = {
-  artistId: string;
-  artistName: string;
-}
-
-export type SongSummary = {
-  artistId: string;
-  albumId: string;
+export type Song = {
   songId: string;
   position: number;
   songName: string;
   durationMs: number;
-}
-
-export type SongFile = SongSummary & {
   handle: FileSystemFileHandle;
 }
 
-export type Song = SongFile & {
-  album: Album;
-}
-
-export interface LibraryAccessor {
-  initialized: boolean;
-  albums: AlbumSummary[];
-  artists: ArtistSummary[];
-  getAlbum(albumId: string): Album;
-  getArtist(artistId: string): Artist;
-  getSong(songId: string): Song;
-}
-
-export interface LibraryDispatch {
-  addAlbum(album: Album): void;
+export interface LibraryClient {
+  initialize(userRequested: boolean): Promise<boolean>;
+  reset(): Promise<void>;
+  load(): AsyncGenerator<Artist | Album, void, unknown>;
 }
 
 export interface LibraryInitializer {
@@ -60,48 +30,19 @@ export interface LibraryInitializer {
   reset(): void;
 }
 
-type InitializeAction = {
-  type: 'INITIALIZE';
-  state: LibraryState;
-}
-
-type ResetAction = {
-  type: 'RESET';
-}
-
-type SetAlbumAction = {
-  type: 'SET_ALBUM';
-  album: Album;
-}
-
-type SetArtistAction = {
-  type: 'SET_ARTIST';
-  artist: ArtistSummary;
-}
-
-export type LibraryAction =
-  | InitializeAction
-  | ResetAction
-  | SetAlbumAction
-  | SetArtistAction;
-
-export type LibraryState = {
-  albums: Record<string, Album>;
-  artists: Record<string, ArtistSummary>;
-  songs: Record<string, SongFile>;
-}
-
-export interface LibraryClient {
-  initialize(userRequested: boolean): Promise<boolean>;
-  state(): Promise<LibraryState>;
-  dispatch(action: LibraryAction): Promise<void>;
-  reset(): Promise<void>;
+export interface LibraryAccessor {
+  status: 'uninitialized' | 'initializing' | 'initialized';
+  artists: Artist[];
+  albums: Album[];
+  getAlbums(artistId: string): Album[];
+  getAlbum(albumId: string): Album;
 }
 
 export interface NowPlayingDispatch {
   play(albums: Album[], position?: [ number, number ]): void;
   add(album: Album): void;
   jumpTo(position: [ number, number ]): void;
+  jumpTo(songId: string): void;
   pause(): void;
   resume(): void;
   restart(): void;
@@ -115,6 +56,7 @@ export type NowPlayingState = {
   status: PlayStatus;
   albums: Album[];
   position?: [ number, number ];
+  album?: Album;
   song?: Song;
   progress?: Progress;
 }

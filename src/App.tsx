@@ -4,13 +4,28 @@ import {
   ScrollRestoration,
   RouterProvider,
 } from 'react-router-dom';
-import { styles, Container, CssBaseline } from './components';
+import {
+  createTheme,
+  Container,
+  CssBaseline,
+  ThemeProvider,
+} from '@mui/material';
 import { LibraryProvider, NowPlayingProvider } from './contexts';
 import {
   AlbumPage,
   HomePage,
 } from './pages';
 import { NowPlaying } from './views';
+
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+  },
+  typography: {
+    h1: { fontSize: '1.5rem' },
+    h2: { fontSize: '1.3rem' },
+  },
+});
 
 const router = createHashRouter([
   {
@@ -40,22 +55,23 @@ export default function App(): React.ReactElement {
 
 function Layout(): React.ReactElement {
   return (
-    <LibraryProvider>
-      <NowPlayingProvider>
-        <CssBaseline />
-        <Container
-          style={{
-            boxSizing: 'border-box',
-            maxWidth: '800px',
-            minHeight: '100dvh',
-            paddingBlock: `${styles.gap.sm} 71px`,
-          }}
-        >
-          <Outlet />
-          <ScrollRestoration />
-          <NowPlaying />
-        </Container>
-      </NowPlayingProvider>
-    </LibraryProvider>
+    <ThemeProvider theme={darkTheme}>
+      <LibraryProvider>
+        <NowPlayingProvider>
+          <CssBaseline />
+          <Container
+            style={{
+              boxSizing: 'border-box',
+              maxWidth: '800px',
+              minHeight: '100dvh',
+            }}
+          >
+            <Outlet />
+            <ScrollRestoration />
+            <NowPlaying />
+          </Container>
+        </NowPlayingProvider>
+      </LibraryProvider>
+    </ThemeProvider>
   );
 };
